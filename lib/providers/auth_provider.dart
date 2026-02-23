@@ -15,6 +15,26 @@ class AuthProvider extends ChangeNotifier {
   bool get isLoggedIn => _isLoggedIn;
   String? get currentUserId => _currentUserId;
   UserRole? get role => _role;
+  String get currentRoleLabel {
+    if (_role == UserRole.owner) return 'Property Owner';
+    if (_role == UserRole.renter) return 'Renter';
+    return 'Unknown';
+  }
+  String get currentFullName {
+    final userId = _currentUserId;
+    if (userId == null) return 'Unknown';
+    final name = StorageService.instance.prefs.getString(_nameKeyFor(userId));
+    if (name == null || name.trim().isEmpty) return 'Unknown';
+    return name.trim();
+  }
+  String get currentUsername {
+    final userId = _currentUserId;
+    if (userId == null) return 'unknown';
+    final username =
+        StorageService.instance.prefs.getString(_usernameKeyFor(userId));
+    if (username == null || username.trim().isEmpty) return userId;
+    return username.trim();
+  }
 
   Future<void> initialize() async {
     final prefs = StorageService.instance.prefs;

@@ -15,12 +15,7 @@ class FavoritePropertiesScreen extends StatelessWidget {
     return Consumer2<AuthProvider, PropertyProvider>(
       builder: (context, auth, propertyProvider, _) {
         final userId = auth.currentUserId ?? '';
-        var favorites = propertyProvider.favoriteProperties(userId);
-
-        // Filter out properties with active bookings (Pending/Approved)
-        favorites = favorites
-            .where((p) => !propertyProvider.hasActiveBookingForProperty(userId, p.id))
-            .toList();
+        final favorites = propertyProvider.favoriteProperties(userId);
 
         if (favorites.isEmpty) {
           return const Center(child: Text('No favorite properties yet'));

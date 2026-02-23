@@ -28,7 +28,13 @@ class _RenterHomeScreenState extends State<RenterHomeScreen> {
     RenterProfileScreen(),
   ];
 
-  final _titles = const ['Properties', 'Favorites', 'My Bookings', 'Payments', 'Profile'];
+  final _titles = const [
+    'Properties',
+    'Favorites',
+    'My Bookings',
+    'Payments',
+    'Profile',
+  ];
 
   @override
   Widget build(BuildContext context) {
@@ -42,6 +48,8 @@ class _RenterHomeScreenState extends State<RenterHomeScreen> {
           NotificationBell(
             userId: renterId,
             role: UserRole.renter,
+            onNavigateToBookings: () => setState(() => _index = 2),
+            onNavigateToPayments: () => setState(() => _index = 3),
           ),
         ],
       ),
@@ -50,7 +58,8 @@ class _RenterHomeScreenState extends State<RenterHomeScreen> {
               children: [
                 NavigationRail(
                   selectedIndex: _index,
-                  onDestinationSelected: (value) => setState(() => _index = value),
+                  onDestinationSelected: (value) =>
+                      setState(() => _index = value),
                   labelType: NavigationRailLabelType.all,
                   destinations: const [
                     NavigationRailDestination(

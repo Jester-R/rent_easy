@@ -47,6 +47,7 @@ class _OwnerHomeScreenState extends State<OwnerHomeScreen> {
           NotificationBell(
             userId: ownerId,
             role: UserRole.owner,
+            onNavigateToBookings: () => setState(() => _index = 2),
           ),
         ],
       ),
