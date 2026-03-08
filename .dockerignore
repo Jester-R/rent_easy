@@ -1,0 +1,9 @@
+.git
+.gitignore
+.metadata
+.dart_tool
+build
+.idea
+*.iml
+.env
+node_modules

@@ -16,8 +16,8 @@ import '../utils/extensions.dart';
 class NotificationBell extends StatefulWidget {
   final String userId;
   final UserRole role;
-  final VoidCallback? onNavigateToBookings;
-  final VoidCallback? onNavigateToPayments;
+  final ValueChanged<String?>? onNavigateToBookings;
+  final ValueChanged<String?>? onNavigateToPayments;
 
   const NotificationBell({
     super.key,
@@ -58,7 +58,8 @@ class _NotificationBellState extends State<NotificationBell> {
     });
   }
 
-  String get _lastSeenKey => 'notification_last_seen_${widget.role.name}_${widget.userId}';
+  String get _lastSeenKey =>
+      'notification_last_seen_${widget.role.name}_${widget.userId}';
 
   List<_AppNotification> _buildNotifications({
     required List<Booking> bookings,
@@ -81,16 +82,23 @@ class _NotificationBellState extends State<NotificationBell> {
                 ? '${booking.renterId} requested ${booking.propertyTitle}'
                 : '${booking.renterId} booking is ${booking.status}',
             time: booking.createdAt,
-            icon: isPending ? Icons.request_page_outlined : Icons.event_note_outlined,
+            icon: isPending
+                ? Icons.request_page_outlined
+                : Icons.event_note_outlined,
             bookingId: booking.id,
             action: isPending ? _NotificationAction.ownerDecision : null,
           ),
         );
       }
 
+      final bookingByPaymentId = <String, Booking>{
+        for (final b in bookings)
+          if (b.paymentId.isNotEmpty) b.paymentId: b,
+      };
       for (final payment in payments.where((p) => p.status == 'Success')) {
         final property = byProperty[payment.propertyId];
         if (property == null || property.ownerId != widget.userId) continue;
+        final relatedBooking = bookingByPaymentId[payment.id];
         result.add(
           _AppNotification(
             title: 'Payment received',
@@ -98,7 +106,8 @@ class _NotificationBellState extends State<NotificationBell> {
                 '${payment.userId} paid ${payment.amount.toUsd()} for ${property.title}',
             time: payment.createdAt,
             icon: Icons.payments_outlined,
-            bookingId: null,
+            bookingId: relatedBooking?.id,
+            paymentId: payment.id,
           ),
         );
       }
@@ -120,6 +129,7 @@ class _NotificationBellState extends State<NotificationBell> {
             time: booking.approvedAt!,
             icon: Icons.verified_outlined,
             bookingId: booking.id,
+            paymentId: booking.paymentId.isEmpty ? null : booking.paymentId,
             action: canPay ? _NotificationAction.renterPayNow : null,
           ),
         );
@@ -130,9 +140,14 @@ class _NotificationBellState extends State<NotificationBell> {
     return result;
   }
 
-  Future<void> _openNotificationSheet(List<_AppNotification> notifications) async {
+  Future<void> _openNotificationSheet(
+    List<_AppNotification> notifications,
+  ) async {
     final now = DateTime.now();
-    await StorageService.instance.prefs.setString(_lastSeenKey, now.toIso8601String());
+    await StorageService.instance.prefs.setString(
+      _lastSeenKey,
+      now.toIso8601String(),
+    );
     if (mounted) {
       setState(() => _lastSeenAt = now);
     }
@@ -163,12 +178,18 @@ class _NotificationBellState extends State<NotificationBell> {
                               const Divider(height: 1),
                           itemBuilder: (sheetContext, index) {
                             final item = notifications[index];
-                            final isBusy = item.bookingId != null &&
+                            final isBusy =
+                                item.bookingId != null &&
                                 _busyBookingIds.contains(item.bookingId!);
                             return InkWell(
-                              onTap: item.bookingId == null
+                              onTap:
+                                  item.bookingId == null &&
+                                      item.paymentId == null
                                   ? null
-                                  : () => _handleNotificationTap(sheetContext, item),
+                                  : () => _handleNotificationTap(
+                                      sheetContext,
+                                      item,
+                                    ),
                               child: Padding(
                                 padding: const EdgeInsets.symmetric(
                                   horizontal: 12,
@@ -179,7 +200,8 @@ class _NotificationBellState extends State<NotificationBell> {
                                   child: Padding(
                                     padding: const EdgeInsets.all(12),
                                     child: Column(
-                                      crossAxisAlignment: CrossAxisAlignment.start,
+                                      crossAxisAlignment:
+                                          CrossAxisAlignment.start,
                                       children: [
                                         Row(
                                           children: [
@@ -187,7 +209,8 @@ class _NotificationBellState extends State<NotificationBell> {
                                               padding: const EdgeInsets.all(8),
                                               decoration: BoxDecoration(
                                                 color: const Color(0xFFE3F4EE),
-                                                borderRadius: BorderRadius.circular(10),
+                                                borderRadius:
+                                                    BorderRadius.circular(10),
                                               ),
                                               child: Icon(
                                                 item.icon,
@@ -254,10 +277,10 @@ class _NotificationBellState extends State<NotificationBell> {
               onPressed: isBusy
                   ? null
                   : () => _handleOwnerDecision(
-                        sheetContext: sheetContext,
-                        bookingId: item.bookingId!,
-                        status: 'Rejected',
-                      ),
+                      sheetContext: sheetContext,
+                      bookingId: item.bookingId!,
+                      status: 'Rejected',
+                    ),
               icon: const Icon(Icons.close),
               label: const Text('Reject'),
             ),
@@ -268,10 +291,10 @@ class _NotificationBellState extends State<NotificationBell> {
               onPressed: isBusy
                   ? null
                   : () => _handleOwnerDecision(
-                        sheetContext: sheetContext,
-                        bookingId: item.bookingId!,
-                        status: 'Approved',
-                      ),
+                      sheetContext: sheetContext,
+                      bookingId: item.bookingId!,
+                      status: 'Approved',
+                    ),
               icon: const Icon(Icons.check),
               label: const Text('Approve'),
             ),
@@ -287,9 +310,9 @@ class _NotificationBellState extends State<NotificationBell> {
           onPressed: isBusy
               ? null
               : () => _handlePayNow(
-                    sheetContext: sheetContext,
-                    bookingId: item.bookingId!,
-                  ),
+                  sheetContext: sheetContext,
+                  bookingId: item.bookingId!,
+                ),
           icon: const Icon(Icons.payments_outlined),
           label: const Text('Pay Now'),
         ),
@@ -299,9 +322,22 @@ class _NotificationBellState extends State<NotificationBell> {
     return const SizedBox.shrink();
   }
 
-  void _handleNotificationTap(BuildContext sheetContext, _AppNotification item) {
+  void _handleNotificationTap(
+    BuildContext sheetContext,
+    _AppNotification item,
+  ) {
     Navigator.pop(sheetContext);
-    widget.onNavigateToBookings?.call();
+    if (widget.role == UserRole.renter && item.paymentId != null) {
+      widget.onNavigateToPayments?.call(item.paymentId);
+      return;
+    }
+    if (item.bookingId != null) {
+      widget.onNavigateToBookings?.call(item.bookingId);
+      return;
+    }
+    if (item.paymentId != null) {
+      widget.onNavigateToPayments?.call(item.paymentId);
+    }
   }
 
   Booking? _findBooking(String bookingId) {
@@ -322,9 +358,9 @@ class _NotificationBellState extends State<NotificationBell> {
 
     setState(() => _busyBookingIds.add(bookingId));
     await context.read<PropertyProvider>().updateBookingStatus(
-          bookingId: bookingId,
-          status: status,
-        );
+      bookingId: bookingId,
+      status: status,
+    );
     if (!mounted) return;
     setState(() => _busyBookingIds.remove(bookingId));
     ScaffoldMessenger.of(context).showSnackBar(
@@ -343,12 +379,14 @@ class _NotificationBellState extends State<NotificationBell> {
     required String bookingId,
   }) async {
     final booking = _findBooking(bookingId);
-    if (booking == null || booking.status != 'Approved' || booking.paymentId.isNotEmpty) {
+    if (booking == null ||
+        booking.status != 'Approved' ||
+        booking.paymentId.isNotEmpty) {
       return;
     }
 
     Navigator.pop(sheetContext);
-    widget.onNavigateToBookings?.call();
+    widget.onNavigateToBookings?.call(bookingId);
 
     await Future<void>.delayed(const Duration(milliseconds: 120));
     if (!mounted) return;
@@ -357,7 +395,9 @@ class _NotificationBellState extends State<NotificationBell> {
 
   void _showPayNowDialog(String bookingId) {
     final booking = _findBooking(bookingId);
-    if (booking == null || booking.status != 'Approved' || booking.paymentId.isNotEmpty) {
+    if (booking == null ||
+        booking.status != 'Approved' ||
+        booking.paymentId.isNotEmpty) {
       return;
     }
 
@@ -383,14 +423,19 @@ class _NotificationBellState extends State<NotificationBell> {
               const SizedBox(height: 6),
               DropdownButtonFormField<String>(
                 initialValue: method,
-                items: const ['ABA Pay (Mock)', 'Wing (Mock)', 'Credit Card (Mock)']
-                    .map(
-                      (m) => DropdownMenuItem<String>(
-                        value: m,
-                        child: Text(m),
-                      ),
-                    )
-                    .toList(),
+                items:
+                    const [
+                          'ABA Pay (Mock)',
+                          'Wing (Mock)',
+                          'Credit Card (Mock)',
+                        ]
+                        .map(
+                          (m) => DropdownMenuItem<String>(
+                            value: m,
+                            child: Text(m),
+                          ),
+                        )
+                        .toList(),
                 onChanged: processing
                     ? null
                     : (value) => setDialogState(() => method = value ?? method),
@@ -428,16 +473,19 @@ class _NotificationBellState extends State<NotificationBell> {
                       if (!mounted || !dialogContext.mounted) return;
                       Navigator.of(dialogContext).pop();
                       if (payment.status == 'Success') {
-                        widget.onNavigateToPayments?.call();
+                        widget.onNavigateToPayments?.call(payment.id);
                         Navigator.push(
                           context,
                           MaterialPageRoute(
-                            builder: (_) => PaymentSuccessScreen(payment: payment),
+                            builder: (_) =>
+                                PaymentSuccessScreen(payment: payment),
                           ),
                         );
                       } else {
                         ScaffoldMessenger.of(context).showSnackBar(
-                          const SnackBar(content: Text('Payment failed. Try again.')),
+                          const SnackBar(
+                            content: Text('Payment failed. Try again.'),
+                          ),
                         );
                       }
                     },
@@ -460,8 +508,9 @@ class _NotificationBellState extends State<NotificationBell> {
           payments: paymentProvider.payments,
           properties: propertyProvider.properties,
         );
-        final unreadCount =
-            notifications.where((n) => n.time.isAfter(_lastSeenAt)).length;
+        final unreadCount = notifications
+            .where((n) => n.time.isAfter(_lastSeenAt))
+            .length;
 
         return IconButton(
           onPressed: () => _openNotificationSheet(notifications),
@@ -474,12 +523,18 @@ class _NotificationBellState extends State<NotificationBell> {
                   right: -6,
                   top: -6,
                   child: Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 5,
+                      vertical: 1,
+                    ),
                     decoration: BoxDecoration(
                       color: Colors.red,
                       borderRadius: BorderRadius.circular(10),
                     ),
-                    constraints: const BoxConstraints(minWidth: 18, minHeight: 18),
+                    constraints: const BoxConstraints(
+                      minWidth: 18,
+                      minHeight: 18,
+                    ),
                     child: Text(
                       unreadCount > 99 ? '99+' : '$unreadCount',
                       textAlign: TextAlign.center,
@@ -505,6 +560,7 @@ class _AppNotification {
   final DateTime time;
   final IconData icon;
   final String? bookingId;
+  final String? paymentId;
   final _NotificationAction? action;
 
   const _AppNotification({
@@ -513,11 +569,9 @@ class _AppNotification {
     required this.time,
     required this.icon,
     this.bookingId,
+    this.paymentId,
     this.action,
   });
 }
 
-enum _NotificationAction {
-  ownerDecision,
-  renterPayNow,
-}
+enum _NotificationAction { ownerDecision, renterPayNow }

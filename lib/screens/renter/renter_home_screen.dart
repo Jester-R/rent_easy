@@ -19,14 +19,30 @@ class RenterHomeScreen extends StatefulWidget {
 
 class _RenterHomeScreenState extends State<RenterHomeScreen> {
   int _index = 0;
+  String? _selectedBookingIdFromNotification;
+  String? _selectedPaymentIdFromNotification;
 
-  final _screens = const [
-    PropertyListScreen(),
-    FavoritePropertiesScreen(),
-    MyBookingsScreen(),
-    PaymentHistoryScreen(),
-    RenterProfileScreen(),
-  ];
+  List<Widget> _buildScreens() {
+    return [
+      const PropertyListScreen(),
+      const FavoritePropertiesScreen(),
+      MyBookingsScreen(
+        selectedBookingId: _selectedBookingIdFromNotification,
+        onSelectionConsumed: () {
+          if (!mounted || _selectedBookingIdFromNotification == null) return;
+          setState(() => _selectedBookingIdFromNotification = null);
+        },
+      ),
+      PaymentHistoryScreen(
+        selectedPaymentId: _selectedPaymentIdFromNotification,
+        onSelectionConsumed: () {
+          if (!mounted || _selectedPaymentIdFromNotification == null) return;
+          setState(() => _selectedPaymentIdFromNotification = null);
+        },
+      ),
+      const RenterProfileScreen(),
+    ];
+  }
 
   final _titles = const [
     'Properties',
@@ -41,6 +57,7 @@ class _RenterHomeScreenState extends State<RenterHomeScreen> {
     final isWide = MediaQuery.of(context).size.width >= 1000;
     final auth = context.watch<AuthProvider>();
     final renterId = auth.currentUserId ?? '';
+    final screens = _buildScreens();
     return Scaffold(
       appBar: AppBar(
         title: Text(_titles[_index]),
@@ -48,8 +65,15 @@ class _RenterHomeScreenState extends State<RenterHomeScreen> {
           NotificationBell(
             userId: renterId,
             role: UserRole.renter,
-            onNavigateToBookings: () => setState(() => _index = 2),
-            onNavigateToPayments: () => setState(() => _index = 3),
+            onNavigateToBookings: (bookingId) => setState(() {
+              _index = 2;
+              _selectedBookingIdFromNotification = bookingId;
+              _selectedPaymentIdFromNotification = null;
+            }),
+            onNavigateToPayments: (paymentId) => setState(() {
+              _index = 3;
+              _selectedPaymentIdFromNotification = paymentId;
+            }),
           ),
         ],
       ),
@@ -85,10 +109,10 @@ class _RenterHomeScreenState extends State<RenterHomeScreen> {
                   ],
                 ),
                 const VerticalDivider(width: 1),
-                Expanded(child: _screens[_index]),
+                Expanded(child: screens[_index]),
               ],
             )
-          : _screens[_index],
+          : screens[_index],
       bottomNavigationBar: isWide
           ? null
           : AppBottomNavBar(

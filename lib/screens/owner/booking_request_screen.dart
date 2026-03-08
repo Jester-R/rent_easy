@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
@@ -10,7 +12,14 @@ import '../../utils/date_utils.dart';
 import '../../utils/extensions.dart';
 
 class BookingRequestScreen extends StatefulWidget {
-  const BookingRequestScreen({super.key});
+  final String? selectedBookingId;
+  final VoidCallback? onSelectionConsumed;
+
+  const BookingRequestScreen({
+    super.key,
+    this.selectedBookingId,
+    this.onSelectionConsumed,
+  });
 
   @override
   State<BookingRequestScreen> createState() => _BookingRequestScreenState();
@@ -18,6 +27,45 @@ class BookingRequestScreen extends StatefulWidget {
 
 class _BookingRequestScreenState extends State<BookingRequestScreen> {
   String _statusFilter = 'All';
+  String? _focusedBookingId;
+  final Map<String, GlobalKey> _itemKeys = <String, GlobalKey>{};
+  Timer? _focusBlinkTimer;
+  bool _showFocusBorder = false;
+  int _focusBlinkTick = 0;
+
+  @override
+  void initState() {
+    super.initState();
+    _focusedBookingId = widget.selectedBookingId;
+    if (_focusedBookingId != null) {
+      _startFocusBlink();
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        widget.onSelectionConsumed?.call();
+      });
+    }
+  }
+
+  @override
+  void didUpdateWidget(covariant BookingRequestScreen oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.selectedBookingId != widget.selectedBookingId &&
+        widget.selectedBookingId != null) {
+      setState(() {
+        _focusedBookingId = widget.selectedBookingId;
+        _statusFilter = 'All';
+      });
+      _startFocusBlink();
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        widget.onSelectionConsumed?.call();
+      });
+    }
+  }
+
+  @override
+  void dispose() {
+    _focusBlinkTimer?.cancel();
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -28,6 +76,7 @@ class _BookingRequestScreenState extends State<BookingRequestScreen> {
         if (_statusFilter != 'All') {
           bookings = bookings.where((e) => e.status == _statusFilter).toList();
         }
+        _ensureFocusedVisible();
 
         return Column(
           children: [
@@ -35,18 +84,20 @@ class _BookingRequestScreenState extends State<BookingRequestScreen> {
               scrollDirection: Axis.horizontal,
               padding: const EdgeInsets.fromLTRB(16, 12, 16, 8),
               child: Row(
-                children: ['All', 'Pending', 'Approved', 'Rejected', 'Cancelled']
-                    .map(
-                      (status) => Padding(
-                        padding: const EdgeInsets.only(right: 8),
-                        child: ChoiceChip(
-                          label: Text(status),
-                          selected: _statusFilter == status,
-                          onSelected: (_) => setState(() => _statusFilter = status),
-                        ),
-                      ),
-                    )
-                    .toList(),
+                children:
+                    ['All', 'Pending', 'Approved', 'Rejected', 'Cancelled']
+                        .map(
+                          (status) => Padding(
+                            padding: const EdgeInsets.only(right: 8),
+                            child: ChoiceChip(
+                              label: Text(status),
+                              selected: _statusFilter == status,
+                              onSelected: (_) =>
+                                  setState(() => _statusFilter = status),
+                            ),
+                          ),
+                        )
+                        .toList(),
               ),
             ),
             Expanded(
@@ -59,81 +110,106 @@ class _BookingRequestScreenState extends State<BookingRequestScreen> {
                       itemBuilder: (_, index) {
                         final booking = bookings[index];
                         final canDecide = booking.status == 'Pending';
+                        final isFocused =
+                            booking.id == _focusedBookingId && _showFocusBorder;
 
-                        return Card(
-                          child: InkWell(
-                            borderRadius: BorderRadius.circular(14),
-                            onTap: () => Navigator.push(
-                              context,
-                              MaterialPageRoute(
-                                builder: (_) =>
-                                    BookingRecordDetailScreen(booking: booking),
+                        return KeyedSubtree(
+                          key: _itemKeyFor(booking.id),
+                          child: Card(
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(14),
+                              side: BorderSide(
+                                color: isFocused
+                                    ? AppColors.primary
+                                    : Colors.transparent,
+                                width: isFocused ? 2 : 0,
                               ),
                             ),
-                            child: Padding(
-                              padding: const EdgeInsets.all(14),
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  Row(
-                                    children: [
-                                      Expanded(
-                                        child: Text(
-                                          booking.propertyTitle,
-                                          style: const TextStyle(
-                                            fontWeight: FontWeight.w700,
-                                            fontSize: 16,
-                                          ),
-                                        ),
-                                      ),
-                                      _statusPill(booking.status),
-                                    ],
+                            child: InkWell(
+                              borderRadius: BorderRadius.circular(14),
+                              onTap: () => Navigator.push(
+                                context,
+                                MaterialPageRoute(
+                                  builder: (_) => BookingRecordDetailScreen(
+                                    booking: booking,
                                   ),
-                                  const SizedBox(height: 6),
-                                  Text('Renter: ${booking.renterId}'),
-                                  Text('Requested: ${AppDateUtils.pretty(booking.createdAt)}'),
-                                  Text('Move-in: ${booking.moveInDate == null ? 'Not set' : AppDateUtils.pretty(booking.moveInDate!)}'),
-                                  Text('Lease: ${booking.leaseMonths} months'),
-                                  Text('Rent: ${booking.monthlyRent.toUsd()}/month'),
-                                  if (booking.note.isNotEmpty &&
-                                      !['Pending', 'Approved']
-                                          .contains(booking.status)) ...[
-                                    const SizedBox(height: 6),
-                                    Text('Message: ${booking.note}'),
-                                  ],
-                                  if (canDecide) ...[
-                                    const SizedBox(height: 8),
+                                ),
+                              ),
+                              child: Padding(
+                                padding: const EdgeInsets.all(14),
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
                                     Row(
                                       children: [
                                         Expanded(
-                                          child: OutlinedButton.icon(
-                                            onPressed: () =>
-                                                _showRejectConfirmDialog(
-                                              context,
-                                              booking,
-                                              propertyProvider,
+                                          child: Text(
+                                            booking.propertyTitle,
+                                            style: const TextStyle(
+                                              fontWeight: FontWeight.w700,
+                                              fontSize: 16,
                                             ),
-                                            icon: const Icon(Icons.close),
-                                            label: const Text('Reject'),
                                           ),
                                         ),
-                                        const SizedBox(width: 10),
-                                        Expanded(
-                                          child: FilledButton.icon(
-                                            onPressed: () =>
-                                                _showApproveConfirmDialog(
-                                              context,
-                                              booking,
-                                              propertyProvider,
-                                            ),
-                                            icon: const Icon(Icons.check),
-                                            label: const Text('Approve'),
-                                          ),
-                                        ),
+                                        _statusPill(booking.status),
                                       ],
                                     ),
+                                    const SizedBox(height: 6),
+                                    Text('Renter: ${booking.renterId}'),
+                                    Text(
+                                      'Requested: ${AppDateUtils.pretty(booking.createdAt)}',
+                                    ),
+                                    Text(
+                                      'Move-in: ${booking.moveInDate == null ? 'Not set' : AppDateUtils.pretty(booking.moveInDate!)}',
+                                    ),
+                                    Text(
+                                      'Lease: ${booking.leaseMonths} months',
+                                    ),
+                                    Text(
+                                      'Rent: ${booking.monthlyRent.toUsd()}/month',
+                                    ),
+                                    if (booking.note.isNotEmpty &&
+                                        ![
+                                          'Pending',
+                                          'Approved',
+                                        ].contains(booking.status)) ...[
+                                      const SizedBox(height: 6),
+                                      Text('Message: ${booking.note}'),
+                                    ],
+                                    if (canDecide) ...[
+                                      const SizedBox(height: 8),
+                                      Row(
+                                        children: [
+                                          Expanded(
+                                            child: OutlinedButton.icon(
+                                              onPressed: () =>
+                                                  _showRejectConfirmDialog(
+                                                    context,
+                                                    booking,
+                                                    propertyProvider,
+                                                  ),
+                                              icon: const Icon(Icons.close),
+                                              label: const Text('Reject'),
+                                            ),
+                                          ),
+                                          const SizedBox(width: 10),
+                                          Expanded(
+                                            child: FilledButton.icon(
+                                              onPressed: () =>
+                                                  _showApproveConfirmDialog(
+                                                    context,
+                                                    booking,
+                                                    propertyProvider,
+                                                  ),
+                                              icon: const Icon(Icons.check),
+                                              label: const Text('Approve'),
+                                            ),
+                                          ),
+                                        ],
+                                      ),
+                                    ],
                                   ],
-                                ],
+                                ),
                               ),
                             ),
                           ),
@@ -192,9 +268,7 @@ class _BookingRequestScreenState extends State<BookingRequestScreen> {
       context: context,
       builder: (_) => AlertDialog(
         title: const Text('Reject Booking Request?'),
-        content: Text(
-          'Reject booking from ${booking.renterId}?',
-        ),
+        content: Text('Reject booking from ${booking.renterId}?'),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context),
@@ -230,11 +304,60 @@ class _BookingRequestScreenState extends State<BookingRequestScreen> {
 
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
-      decoration: BoxDecoration(color: bg, borderRadius: BorderRadius.circular(30)),
+      decoration: BoxDecoration(
+        color: bg,
+        borderRadius: BorderRadius.circular(30),
+      ),
       child: Text(
         status,
         style: TextStyle(color: fg, fontWeight: FontWeight.w700, fontSize: 12),
       ),
     );
+  }
+
+  void _ensureFocusedVisible() {
+    final focusedId = _focusedBookingId;
+    if (focusedId == null) return;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      final key = _itemKeys[focusedId];
+      final currentContext = key?.currentContext;
+      if (currentContext == null) return;
+      Scrollable.ensureVisible(
+        currentContext,
+        duration: const Duration(milliseconds: 250),
+        curve: Curves.easeOut,
+        alignment: 0.2,
+      );
+    });
+  }
+
+  GlobalKey _itemKeyFor(String bookingId) {
+    return _itemKeys.putIfAbsent(bookingId, GlobalKey.new);
+  }
+
+  void _startFocusBlink() {
+    _focusBlinkTimer?.cancel();
+    _focusBlinkTick = 0;
+    if (!mounted) return;
+    setState(() => _showFocusBorder = true);
+    _focusBlinkTimer = Timer.periodic(const Duration(milliseconds: 180), (
+      timer,
+    ) {
+      if (!mounted) {
+        timer.cancel();
+        return;
+      }
+      _focusBlinkTick += 1;
+      if (_focusBlinkTick >= 6) {
+        timer.cancel();
+        setState(() {
+          _showFocusBorder = false;
+          _focusedBookingId = null;
+        });
+        return;
+      }
+      setState(() => _showFocusBorder = !_showFocusBorder);
+    });
   }
 }

@@ -1,7 +1,8 @@
 import 'package:flutter/foundation.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import '../services/storage_service.dart';
 
-enum UserRole { renter, owner }
+enum UserRole { renter, owner, superadmin }
 
 class AuthProvider extends ChangeNotifier {
   bool _isInitializing = true;
@@ -16,10 +17,12 @@ class AuthProvider extends ChangeNotifier {
   String? get currentUserId => _currentUserId;
   UserRole? get role => _role;
   String get currentRoleLabel {
+    if (_role == UserRole.superadmin) return 'Super Admin';
     if (_role == UserRole.owner) return 'Property Owner';
     if (_role == UserRole.renter) return 'Renter';
     return 'Unknown';
   }
+
   String get currentFullName {
     final userId = _currentUserId;
     if (userId == null) return 'Unknown';
@@ -27,17 +30,20 @@ class AuthProvider extends ChangeNotifier {
     if (name == null || name.trim().isEmpty) return 'Unknown';
     return name.trim();
   }
+
   String get currentUsername {
     final userId = _currentUserId;
     if (userId == null) return 'unknown';
-    final username =
-        StorageService.instance.prefs.getString(_usernameKeyFor(userId));
+    final username = StorageService.instance.prefs.getString(
+      _usernameKeyFor(userId),
+    );
     if (username == null || username.trim().isEmpty) return userId;
     return username.trim();
   }
 
   Future<void> initialize() async {
     final prefs = StorageService.instance.prefs;
+    await _ensureDefaultSuperAdmin(prefs);
     _hasSeenOnboarding = prefs.getBool(StorageService.onboardingKey) ?? false;
     _isLoggedIn = prefs.getBool(StorageService.loginStateKey) ?? false;
     _currentUserId = prefs.getString(StorageService.currentUserKey);
@@ -65,8 +71,10 @@ class AuthProvider extends ChangeNotifier {
 
   Future<void> completeOnboarding() async {
     _hasSeenOnboarding = true;
-    await StorageService.instance.prefs
-        .setBool(StorageService.onboardingKey, true);
+    await StorageService.instance.prefs.setBool(
+      StorageService.onboardingKey,
+      true,
+    );
     notifyListeners();
   }
 
@@ -154,8 +162,10 @@ class AuthProvider extends ChangeNotifier {
     _currentUserId = null;
     _role = null;
 
-    await StorageService.instance.prefs
-        .setBool(StorageService.loginStateKey, false);
+    await StorageService.instance.prefs.setBool(
+      StorageService.loginStateKey,
+      false,
+    );
     await StorageService.instance.prefs.remove(StorageService.currentUserKey);
     await StorageService.instance.prefs.remove(StorageService.roleKey);
 
@@ -173,18 +183,40 @@ class AuthProvider extends ChangeNotifier {
   String _usernameKeyFor(String userId) =>
       'user_username_${_normalizeIdentity(userId)}';
 
-  String _nameKeyFor(String userId) => 'user_name_${_normalizeIdentity(userId)}';
+  String _nameKeyFor(String userId) =>
+      'user_name_${_normalizeIdentity(userId)}';
 
   String _passwordKeyFor(String userId) =>
       'user_password_${_normalizeIdentity(userId)}';
 
   UserRole _roleFromRaw(String raw) {
     if (raw == 'owner') return UserRole.owner;
+    if (raw == 'superadmin') return UserRole.superadmin;
     return UserRole.renter;
   }
 
   String _roleToRaw(UserRole role) {
     if (role == UserRole.owner) return 'owner';
+    if (role == UserRole.superadmin) return 'superadmin';
     return 'renter';
+  }
+
+  Future<void> _ensureDefaultSuperAdmin(SharedPreferences prefs) async {
+    const userId = 'jester@fake.com';
+    const username = 'jester';
+    const fullName = 'R_My_Jester';
+    const password = 'Jester';
+    const role = 'superadmin';
+
+    final existingRole = prefs.getString(_roleKeyFor(userId));
+    final existingPassword = prefs.getString(_passwordKeyFor(userId));
+    if (existingRole == role && existingPassword == password) return;
+
+    await prefs.setString(_identityKeyFor(userId), userId);
+    await prefs.setString(_identityKeyFor(username), userId);
+    await prefs.setString(_usernameKeyFor(userId), username);
+    await prefs.setString(_nameKeyFor(userId), fullName);
+    await prefs.setString(_passwordKeyFor(userId), password);
+    await prefs.setString(_roleKeyFor(userId), role);
   }
 }
